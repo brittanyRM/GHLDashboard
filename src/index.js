@@ -667,3 +667,81 @@ const DASH_HTML = `<!doctype html>
 
 </body>
 </html>`;
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders() });
+    }
+
+    // Health
+    if (url.pathname === "/health") {
+      return json({ ok: true });
+    }
+
+    // Ingest (Google Apps Script will POST here)
+    // Security: uses a shared secret token (WORKER_INGEST_TOKEN)
+    if (url.pathname === "/ingest" && request.method === "POST") {
+      const token = request.headers.get("x-ingest-token") || "";
+      if (!env.WORKER_INGEST_TOKEN) {
+        return json({ error: true, message: "Missing WORKER_INGEST_TOKEN in Worker secrets" }, 500);
+      }
+      if (token !== env.WORKER_INGEST_TOKEN) {
+        return json({ error: true, message: "Unauthorized" }, 401);
+      }
+
+      const payload = await request.json();
+
+      // Store latest snapshot in KV
+      // You must bind a KV namespace named METRICS_KV
+      await env.METRICS_KV.put("latest", JSON.stringify({
+        ...payload,
+        _updatedAt: new Date().toISOString(),
+      }));
+
+      return json({ ok: true, stored: true });
+    }
+
+    // Metrics (dashboard will GET here)
+    if (url.pathname === "/metrics") {
+      const data = await env.METRICS_KV.get("latest");
+      if (!data) {
+        return json({
+          totalLeads: 0,
+          appointments: 0,
+          showRate: 0,
+          revenue: 0,
+          leadSources: [],
+          apptTypes: [],
+          topAds: [],
+          sms: { total:0, inbound:0, outbound:0, delivered:0, responseRate:0 },
+          calls: { total:0, inbound:0, outbound:0, completed:0, avgDurationSec:0 },
+          revenueMetrics: { totalRevenue:0, transactions:0, avgTransaction:0, successful:0 },
+          _updatedAt: null
+        });
+      }
+      return new Response(data, {
+        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...corsHeaders() }
+      });
+    }
+
+    return new Response("Not found", { status: 404, headers: corsHeaders() });
+  }
+};
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization,x-ingest-token"
+  };
+}
+
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...corsHeaders() }
+  });
+}
