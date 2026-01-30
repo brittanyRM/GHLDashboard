@@ -671,42 +671,37 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders() });
     }
 
-    // Health
     if (url.pathname === "/health") {
       return json({ ok: true });
     }
 
-    // Ingest (Google Apps Script will POST here)
-    // Security: uses a shared secret token (WORKER_INGEST_TOKEN)
+    // ✅ Google Script posts here
     if (url.pathname === "/ingest" && request.method === "POST") {
       const token = request.headers.get("x-ingest-token") || "";
-      if (!env.WORKER_INGEST_TOKEN) {
-        return json({ error: true, message: "Missing WORKER_INGEST_TOKEN in Worker secrets" }, 500);
-      }
-      if (token !== env.WORKER_INGEST_TOKEN) {
-        return json({ error: true, message: "Unauthorized" }, 401);
-      }
+      if (!env.WORKER_INGEST_TOKEN) return json({ error: true, message: "Missing WORKER_INGEST_TOKEN" }, 500);
+      if (token !== env.WORKER_INGEST_TOKEN) return json({ error: true, message: "Unauthorized" }, 401);
 
+      const range = url.searchParams.get("range") || "all";
       const payload = await request.json();
 
-      // Store latest snapshot in KV
-      // You must bind a KV namespace named METRICS_KV
-      await env.METRICS_KV.put("latest", JSON.stringify({
+      await env.METRICS_KV.put(`latest_${range}`, JSON.stringify({
         ...payload,
+        _range: range,
         _updatedAt: new Date().toISOString(),
       }));
 
-      return json({ ok: true, stored: true });
+      return json({ ok: true, storedKey: `latest_${range}` });
     }
 
-    // Metrics (dashboard will GET here)
-    if (url.pathname === "/metrics") {
-      const data = await env.METRICS_KV.get("latest");
+    // ✅ Dashboard reads here
+    if (url.pathname === "/metrics" && request.method === "GET") {
+      const range = url.searchParams.get("range") || "all";
+      const data = await env.METRICS_KV.get(`latest_${range}`);
+
       if (!data) {
         return json({
           totalLeads: 0,
@@ -722,6 +717,7 @@ export default {
           _updatedAt: null
         });
       }
+
       return new Response(data, {
         headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...corsHeaders() }
       });
