@@ -113,4 +113,36 @@ export default {
               <div class="item">
                 <div class="itemTitle">\${ad.label || ad.adId || "Ad"}</div>
                 <span class="pill">Leads: \${(ad.leads||0).toLocaleString()}</span>
-                <span class="pill">Appts: \${(ad.appts||0)
+                <span class="pill">Appts: \${(ad.appts||0).toLocaleString()}</span>
+                <span class="pill">Conv: \${Number(ad.convRate||0).toFixed(1)}%</span>
+              </div>
+            \`).join("")}
+          </div>
+        </div>
+        <div class="card">
+          <div class="sectionTitle">SMS Metrics</div>
+          <div class="row"><div>Total</div><div>\${(data.sms?.total||0).toLocaleString()}</div></div>
+          <div class="row"><div>Inbound</div><div>\${(data.sms?.inbound||0).toLocaleString()}</div></div>
+          <div class="row"><div>Outbound</div><div>\${(data.sms?.outbound||0).toLocaleString()}</div></div>
+          <div class="row"><div>Response Rate</div><div>\${Number(data.sms?.responseRate||0).toFixed(1)}%</div></div>
+        </div>
+      </div>
+    \`;
+  } catch(e){
+    app.innerHTML = "<div class='err'><strong>Dashboard Error:</strong> Could not load data.</div>";
+  }
+})();
+</script>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        // ✅ allow embedding in GHL iframe
+        "Content-Security-Policy": "frame-ancestors *"
+      }
+    });
+  }
+};
