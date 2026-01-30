@@ -1,3 +1,10 @@
 name = "ghl-metrics"
 main = "src/index.js"
 compatibility_date = "2026-01-30"
+
+[vars]
+WORKER_INGEST_TOKEN = "your_secure_token_here"
+
+[[kv_namespaces]]
+binding = "METRICS_KV"
+id = "your_kv_namespace_id"
