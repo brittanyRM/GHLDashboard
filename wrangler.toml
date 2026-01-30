@@ -2,9 +2,10 @@ name = "ghl-metrics"
 main = "src/index.js"
 compatibility_date = "2026-01-30"
 
-[vars]
-WORKER_INGEST_TOKEN = "your_secure_token_here"
+kv_namespaces = [
+  { binding = "METRICS_KV", id = "PASTE_REAL_KV_NAMESPACE_ID_HERE" }
+]
 
-[[kv_namespaces]]
-binding = "METRICS_KV"
-id = "your_kv_namespace_id"
+[vars]
+# DO NOT put secrets here if you can avoid it.
+# Better: set WORKER_INGEST_TOKEN as a Secret in Cloudflare dashboard.
