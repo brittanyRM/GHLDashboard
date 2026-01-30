@@ -1,0 +1,55 @@
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const cb = url.searchParams.get("callback"); // JSONP callback name
+
+    // Demo data (same as before)
+    const data = {
+      totalLeads: 1234,
+      appointments: 56,
+      showRate: 78.9,
+      revenue: 10651,
+
+      leadSources: [
+        { label: "Organic/Direct", count: 4071 },
+        { label: "BBBE $249", count: 214 },
+        { label: "unlimited tox form", count: 178 }
+      ],
+
+      apptTypes: [
+        { label: "Bye Bye Baggy Eyes Pipeline", count: 113 },
+        { label: "Unlimited Tox Pipeline", count: 96 }
+      ],
+
+      topAds: [
+        { label: "Organic / Direct", adId: "organic", leads: 3770, appts: 205, convRate: 5.4 },
+        { label: "120239497020010029", adId: "120239497020010029", leads: 75, appts: 10, convRate: 13.3 }
+      ],
+
+      sms: { total: 118, inbound: 19, outbound: 99, delivered: 118, responseRate: 19.2 },
+      calls: { total: 2, inbound: 2, outbound: 0, completed: 2, avgDurationSec: 0 },
+      revenueMetrics: { totalRevenue: 10651, transactions: 394, avgTransaction: 27.03, successful: 343 }
+    };
+
+    // If callback is present -> JSONP
+    if (cb) {
+      const body = `${cb}(${JSON.stringify(data)});`;
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store"
+        }
+      });
+    }
+
+    // Normal JSON response
+    return new Response(JSON.stringify(data, null, 2), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store"
+      }
+    });
+  }
+};
