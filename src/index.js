@@ -1,148 +1,344 @@
+const DASH_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GHL Dashboard</title>
+</head>
+<body>
+  <div id="ghlDashRoot"></div>
+
+  <style>
+    :root{
+      --bg:#f7f7fb;
+      --card:#ffffff;
+      --text:#111827;
+      --muted:#6b7280;
+      --border:#e5e7eb;
+      --accent:#6d28d9;
+      --shadow: 0 10px 25px rgba(0,0,0,0.06);
+      --radius: 18px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0}
+    #ghlDashRoot{
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color:var(--text);
+      background:transparent;
+    }
+    .dash{padding:18px;background:var(--bg);border-radius:var(--radius);}
+    .topbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;}
+    .chipRow{display:flex;gap:10px;flex-wrap:wrap;}
+    .chip{
+      background:var(--card);border:1px solid var(--border);padding:10px 14px;border-radius:999px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.03);font-size:14px;display:flex;gap:10px;align-items:center;
+      cursor:pointer;user-select:none;
+    }
+    .chip.active{border-color:rgba(109,40,217,0.35);box-shadow:0 6px 20px rgba(109,40,217,0.10);}
+    .chip small{color:var(--muted)}
+    .range{display:flex;gap:8px;align-items:center;}
+    .range select{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:10px 12px;font-size:14px;outline:none;}
+    .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:14px;}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;min-height:96px;}
+    .kpiTitle{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;margin-bottom:12px;}
+    .kpiVal{font-size:34px;font-weight:700;letter-spacing:-0.02em;}
+    .kpiSub{margin-top:6px;color:var(--muted);font-size:13px;}
+    .tabs{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap;}
+    .tab{padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--card);font-size:14px;cursor:pointer;}
+    .tab.active{border-color:rgba(109,40,217,0.35);}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
+    .sectionTitle{font-size:18px;font-weight:700;margin:0 0 6px 0;}
+    .sectionSub{color:var(--muted);font-size:13px;margin:0 0 12px 0;}
+    .row{display:flex;justify-content:space-between;gap:12px;margin:10px 0 6px;font-size:14px;}
+    .bar{width:100%;height:10px;background:#f1f2f6;border-radius:999px;overflow:hidden;border:1px solid #eee;}
+    .bar>div{height:100%;background:var(--accent);border-radius:999px;width:0%;transition:width .35s ease;}
+    .list{display:flex;flex-direction:column;gap:12px;margin-top:10px;}
+    .item{padding:12px;border:1px solid var(--border);border-radius:16px;background:#fff;}
+    .itemTop{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}
+    .itemTitle{font-weight:700;}
+    .itemMeta{color:var(--muted);font-size:13px;}
+    .itemGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;font-size:13px;}
+    .pill{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:#fafafa;}
+    .gridBottom{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    @media (max-width:1100px){
+      .grid4{grid-template-columns:repeat(2,minmax(0,1fr));}
+      .grid2{grid-template-columns:1fr;}
+      .gridBottom{grid-template-columns:1fr;}
+    }
+  </style>
+
+  <script>
+  (() => {
+    // Use Worker itself as API if none provided:
+    const params = new URLSearchParams(window.location.search);
+    const apiUrl = params.get("api") || (location.origin + "/data");
+
+    const RANGE_OPTIONS = [
+      { key: "all", label: "All Time" },
+      { key: "7d", label: "Last 7 days" },
+      { key: "30d", label: "Last 30 days" },
+      { key: "90d", label: "Last 90 days" },
+    ];
+
+    const root = document.getElementById("ghlDashRoot");
+
+    const state = { view:"fb", range:"all", tab:"Overview", data:null };
+
+    const navButtons = [
+      { key:"fb", label:"Facebook Insights" },
+      { key:"leads", label:"Lead Tracker" },
+      { key:"adid", label:"By Ad ID" },
+      { key:"setter", label:"Setter Performance" },
+    ];
+    const tabs = ["Overview","Pipelines","Leads","Appointments"];
+
+    function fmtInt(n){ return (Number(n)||0).toLocaleString(); }
+    function fmtMoney(n){ return (Number(n)||0).toLocaleString(undefined,{style:"currency",currency:"USD"}); }
+    function clampPct(n){ n=Number(n)||0; return Math.max(0,Math.min(100,n)); }
+    function percentOf(part,total){ part=Number(part)||0; total=Number(total)||0; return total? clampPct((part/total)*100) : 0; }
+    function formatDuration(seconds){ seconds=Number(seconds)||0; const m=Math.floor(seconds/60); const s=seconds%60; return m+"m "+s+"s"; }
+    function escapeHtml(str){ return String(str).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
+    function labelForRange(key){ const f=RANGE_OPTIONS.find(x=>x.key===key); return f?f.label:"All Time"; }
+
+    async function loadData(rangeKey){
+      const url = apiUrl.includes("?") ? (apiUrl + "&range=" + encodeURIComponent(rangeKey)) : (apiUrl + "?range=" + encodeURIComponent(rangeKey));
+      const res = await fetch(url, { credentials:"omit" });
+      if(!res.ok) throw new Error("API failed");
+      return await res.json();
+    }
+
+    function kpiCard(title,value,sub){
+      return \`
+        <div class="card">
+          <div class="kpiTitle"><span>\${title}</span><span></span></div>
+          <div class="kpiVal">\${value}</div>
+          <div class="kpiSub">\${sub}</div>
+        </div>\`;
+    }
+
+    function emptyState(text){
+      return \`<div style="color:var(--muted); font-size:14px; padding:12px; border:1px dashed var(--border); border-radius:16px; background:#fafafa;">\${escapeHtml(text)}</div>\`;
+    }
+
+    function progressRow(label,countText,pct){
+      return \`
+        <div class="row">
+          <div>\${escapeHtml(label)}</div>
+          <div style="color:var(--muted)">\${escapeHtml(String(countText))}</div>
+        </div>
+        <div class="bar"><div data-pct="\${clampPct(pct)}"></div></div>\`;
+    }
+
+    function adCard(ad,rank){
+      const leads=Number(ad.leads)||0;
+      const appts=Number(ad.appts)||0;
+      const conv=clampPct(ad.convRate || (leads?(appts/leads*100):0));
+      const roi=(ad.roi==null) ? "—" : (clampPct(ad.roi).toFixed(1)+"%");
+      return \`
+        <div class="item">
+          <div class="itemTop">
+            <div>
+              <div class="itemTitle">#\${rank} \${escapeHtml(ad.label || ad.adId || "Unknown")}</div>
+              <div class="itemMeta">\${escapeHtml(ad.adId ? ("Ad ID: "+ad.adId) : "")}</div>
+            </div>
+            <div class="pill">ROI: <strong style="margin-left:6px">\${roi}</strong></div>
+          </div>
+          <div class="itemGrid">
+            <div class="pill">Leads: <strong style="margin-left:6px">\${fmtInt(leads)}</strong></div>
+            <div class="pill">Appts: <strong style="margin-left:6px">\${fmtInt(appts)}</strong></div>
+            <div class="pill">Conv Rate: <strong style="margin-left:6px">\${conv.toFixed(1)}%</strong></div>
+          </div>
+        </div>\`;
+    }
+
+    function metricLines(rows){
+      return \`
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          \${rows.map(([k,v])=>\`
+            <div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #f2f2f5;">
+              <div style="color:var(--muted)">\${escapeHtml(String(k))}:</div>
+              <div style="font-weight:700">\${escapeHtml(String(v))}</div>
+            </div>\`).join("")}
+        </div>\`;
+    }
+
+    function animateBars(){
+      document.querySelectorAll(".bar > div").forEach(el=>{
+        const pct = el.getAttribute("data-pct") || "0";
+        el.style.width = pct + "%";
+      });
+    }
+
+    function wireEvents(){
+      const rangeSel=document.getElementById("rangeSel");
+      if(rangeSel){
+        rangeSel.onchange = async (e)=>{
+          state.range=e.target.value;
+          state.data=await loadData(state.range);
+          render();
+        };
+      }
+      document.querySelectorAll("[data-view]").forEach(el=>{
+        el.onclick=()=>{ state.view=el.getAttribute("data-view"); render(); };
+      });
+      document.querySelectorAll("[data-tab]").forEach(el=>{
+        el.onclick=()=>{ state.tab=el.getAttribute("data-tab"); render(); };
+      });
+    }
+
+    function render(){
+      const d = state.data || {};
+      const leadSources = Array.isArray(d.leadSources)? d.leadSources : [];
+      const apptTypes = Array.isArray(d.apptTypes)? d.apptTypes : [];
+      const topAds = Array.isArray(d.topAds)? d.topAds : [];
+
+      const totalLeadSourceCount = leadSources.reduce((a,x)=>a+(Number(x.count)||0),0);
+      const totalApptTypeCount = apptTypes.reduce((a,x)=>a+(Number(x.count)||0),0);
+
+      root.innerHTML = \`
+        <div class="dash">
+          <div class="topbar">
+            <div class="range">
+              <div class="chip"><small>📅</small> <strong>\${labelForRange(state.range)}</strong></div>
+              <select id="rangeSel">
+                \${RANGE_OPTIONS.map(o=>\`<option value="\${o.key}" \${o.key===state.range?'selected':''}>\${o.label}</option>\`).join("")}
+              </select>
+            </div>
+
+            <div class="chipRow">
+              \${navButtons.map(b=>\`
+                <div class="chip \${state.view===b.key?'active':''}" data-view="\${b.key}">
+                  <strong>\${b.label}</strong>
+                </div>\`).join("")}
+            </div>
+          </div>
+
+          <div class="grid4">
+            \${kpiCard("Total Leads", fmtInt(d.totalLeads), "All Time")}
+            \${kpiCard("Appointments", fmtInt(d.appointments), "All Time")}
+            \${kpiCard("Show Rate", (clampPct(d.showRate).toFixed(1)+"%"), "Showed / Booked")}
+            \${kpiCard("Total Revenue", fmtMoney(d.revenue), "All Time")}
+          </div>
+
+          <div class="tabs">
+            \${["Overview","Pipelines","Leads","Appointments"].map(t=>\`<div class="tab \${state.tab===t?'active':''}" data-tab="\${t}">\${t}</div>\`).join("")}
+          </div>
+
+          <div class="grid2">
+            <div class="card">
+              <p class="sectionTitle">Lead Sources by Channel</p>
+              <p class="sectionSub">Distribution of leads by marketing channel</p>
+              \${leadSources.length ? leadSources.slice(0,8).map(ls => progressRow(ls.label, ls.count, percentOf(ls.count, totalLeadSourceCount))).join("") : emptyState("No lead source data yet.")}
+            </div>
+
+            <div class="card">
+              <p class="sectionTitle">Appointment Types</p>
+              <p class="sectionSub">Distribution of appointments by pipeline/type</p>
+              \${apptTypes.length ? apptTypes.slice(0,8).map(a => progressRow(a.label, (a.count+" ("+percentOf(a.count,totalApptTypeCount).toFixed(1)+"%)"), percentOf(a.count,totalApptTypeCount))).join("") : emptyState("No appointment type data yet.")}
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="card">
+              <p class="sectionTitle">Top Performing Ads</p>
+              <p class="sectionSub">Best ads by lead volume</p>
+              <div class="list">
+                \${topAds.length ? topAds.slice(0,5).map((ad, idx)=>adCard(ad, idx+1)).join("") : emptyState("No ad data yet.")}
+              </div>
+            </div>
+
+            <div class="card">
+              <p class="sectionTitle">Text/SMS Metrics</p>
+              <p class="sectionSub">&nbsp;</p>
+              \${metricLines([
+                ["Total Texts", d.sms?.total ?? 0],
+                ["Inbound", d.sms?.inbound ?? 0],
+                ["Outbound", d.sms?.outbound ?? 0],
+                ["Delivered", d.sms?.delivered ?? 0],
+                ["Response Rate", (clampPct(d.sms?.responseRate).toFixed(1)+"%")],
+              ])}
+            </div>
+          </div>
+
+          <div class="gridBottom">
+            <div class="card">
+              <p class="sectionTitle">Call Metrics</p>
+              <p class="sectionSub">&nbsp;</p>
+              \${metricLines([
+                ["Total Calls", d.calls?.total ?? 0],
+                ["Inbound", d.calls?.inbound ?? 0],
+                ["Outbound", d.calls?.outbound ?? 0],
+                ["Completed", d.calls?.completed ?? 0],
+                ["Avg Duration", formatDuration(d.calls?.avgDurationSec ?? 0)],
+              ])}
+            </div>
+
+            <div class="card">
+              <p class="sectionTitle">Revenue Metrics</p>
+              <p class="sectionSub">&nbsp;</p>
+              \${metricLines([
+                ["Total Revenue", fmtMoney(d.revenueMetrics?.totalRevenue ?? d.revenue ?? 0)],
+                ["Transactions", d.revenueMetrics?.transactions ?? 0],
+                ["Avg Transaction", fmtMoney(d.revenueMetrics?.avgTransaction ?? 0)],
+                ["Successful", d.revenueMetrics?.successful ?? 0],
+              ])}
+            </div>
+          </div>
+        </div>\`;
+
+      wireEvents();
+      animateBars();
+    }
+
+    (async ()=>{
+      try{
+        state.data = await loadData(state.range);
+      }catch(e){
+        state.data = { totalLeads:0, appointments:0, showRate:0, revenue:0, leadSources:[], apptTypes:[], topAds:[], sms:{}, calls:{}, revenueMetrics:{} };
+      }
+      render();
+    })();
+  })();
+  </script>
+</body>
+</html>`;
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/data") {
-      const data = {
-        totalLeads: 1234,
-        appointments: 56,
-        showRate: 78.9,
-        revenue: 10651,
-        leadSources: [
-          { label: "Organic/Direct", count: 4071 },
-          { label: "BBBE $249", count: 214 },
-          { label: "unlimited tox form", count: 178 }
-        ],
-        apptTypes: [
-          { label: "Bye Bye Baggy Eyes Pipeline", count: 113 },
-          { label: "Unlimited Tox Pipeline", count: 96 }
-        ],
-        topAds: [
-          { label: "Organic / Direct", adId: "organic", leads: 3770, appts: 205, convRate: 5.4 },
-          { label: "120239497020010029", adId: "120239497020010029", leads: 75, appts: 10, convRate: 13.3 }
-        ],
-        sms: { total: 118, inbound: 19, outbound: 99, delivered: 118, responseRate: 19.2 },
-        calls: { total: 2, inbound: 2, outbound: 0, completed: 2, avgDurationSec: 0 },
-        revenueMetrics: { totalRevenue: 10651, transactions: 394, avgTransaction: 27.03, successful: 343 }
-      };
-
-      return new Response(JSON.stringify(data), {
+    // Serve UI
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      return new Response(DASH_HTML, {
         headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "no-store"
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          // allow embedding in GHL
+          "content-security-policy": "frame-ancestors *",
         }
       });
     }
 
-    const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Executive Dashboard</title>
-  <style>
-    :root{
-      --bg:#f7f7fb; --card:#fff; --text:#111827; --muted:#6b7280;
-      --border:#e5e7eb; --accent:#6d28d9; --shadow:0 10px 25px rgba(0,0,0,.06); --radius:18px;
+    // TODO: keep your /data endpoint here
+    if (url.pathname === "/data") {
+      // return JSON in the shape your UI expects
+      const sample = {
+        totalLeads: 0,
+        appointments: 0,
+        showRate: 0,
+        revenue: 0,
+        leadSources: [],
+        apptTypes: [],
+        topAds: [],
+        sms: { total:0, inbound:0, outbound:0, delivered:0, responseRate:0 },
+        calls: { total:0, inbound:0, outbound:0, completed:0, avgDurationSec:0 },
+        revenueMetrics: { totalRevenue:0, transactions:0, avgTransaction:0, successful:0 }
+      };
+      return new Response(JSON.stringify(sample), {
+        headers: { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" }
+      });
     }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--text);background:var(--bg)}
-    .wrap{padding:18px}
-    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
-    .kpiTitle{color:var(--muted);font-size:14px;margin-bottom:8px}
-    .kpiVal{font-size:32px;font-weight:700}
-    .sectionTitle{font-size:18px;font-weight:700;margin-bottom:6px}
-    .sectionSub{font-size:13px;color:var(--muted);margin-bottom:10px}
-    .row{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}
-    .bar{height:10px;background:#eee;border-radius:999px;overflow:hidden}
-    .bar div{height:100%;background:var(--accent);width:0%;transition:width .4s ease}
-    .list{display:flex;flex-direction:column;gap:10px}
-    .item{padding:12px;border:1px solid var(--border);border-radius:14px;background:#fff}
-    .itemTitle{font-weight:700;margin-bottom:6px}
-    .pill{display:inline-block;margin:4px 6px 0 0;padding:6px 10px;border-radius:999px;border:1px solid var(--border);font-size:13px;background:#fafafa}
-    .err{padding:14px;border:2px dashed #f00;border-radius:12px;background:#fff}
-    @media(max-width:1100px){ .grid4{grid-template-columns:repeat(2,1fr)} .grid2{grid-template-columns:1fr} }
-  </style>
-</head>
-<body>
-  <div class="wrap"><div id="app"></div></div>
-<script>
-(async function(){
-  const app = document.getElementById("app");
-  try{
-    const res = await fetch("/data", { cache: "no-store" });
-    const data = await res.json();
 
-    const totalLeads = Number(data.totalLeads)||0;
-    const appointments = Number(data.appointments)||0;
-
-    const barRow = (label,count,pct) => \`
-      <div class="row"><div>\${label}</div><div>\${count}</div></div>
-      <div class="bar"><div style="width:\${pct}%"></div></div>
-    \`;
-
-    app.innerHTML = \`
-      <div class="grid4">
-        <div class="card"><div class="kpiTitle">Total Leads</div><div class="kpiVal">\${totalLeads.toLocaleString()}</div></div>
-        <div class="card"><div class="kpiTitle">Appointments</div><div class="kpiVal">\${appointments.toLocaleString()}</div></div>
-        <div class="card"><div class="kpiTitle">Show Rate</div><div class="kpiVal">\${Number(data.showRate||0).toFixed(1)}%</div></div>
-        <div class="card"><div class="kpiTitle">Revenue</div><div class="kpiVal">$\${Number(data.revenue||0).toLocaleString()}</div></div>
-      </div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="sectionTitle">Lead Sources</div>
-          <div class="sectionSub">By channel</div>
-          \${(data.leadSources||[]).map(ls => barRow(ls.label, ls.count, totalLeads ? Math.min(100,(ls.count/totalLeads)*100) : 0)).join("")}
-        </div>
-        <div class="card">
-          <div class="sectionTitle">Appointment Types</div>
-          <div class="sectionSub">By pipeline</div>
-          \${(data.apptTypes||[]).map(a => barRow(a.label, a.count, appointments ? Math.min(100,(a.count/appointments)*100) : 0)).join("")}
-        </div>
-      </div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="sectionTitle">Top Ads</div>
-          <div class="list">
-            \${(data.topAds||[]).slice(0,5).map(ad => \`
-              <div class="item">
-                <div class="itemTitle">\${ad.label || ad.adId || "Ad"}</div>
-                <span class="pill">Leads: \${(ad.leads||0).toLocaleString()}</span>
-                <span class="pill">Appts: \${(ad.appts||0).toLocaleString()}</span>
-                <span class="pill">Conv: \${Number(ad.convRate||0).toFixed(1)}%</span>
-              </div>
-            \`).join("")}
-          </div>
-        </div>
-        <div class="card">
-          <div class="sectionTitle">SMS Metrics</div>
-          <div class="row"><div>Total</div><div>\${(data.sms?.total||0).toLocaleString()}</div></div>
-          <div class="row"><div>Inbound</div><div>\${(data.sms?.inbound||0).toLocaleString()}</div></div>
-          <div class="row"><div>Outbound</div><div>\${(data.sms?.outbound||0).toLocaleString()}</div></div>
-          <div class="row"><div>Response Rate</div><div>\${Number(data.sms?.responseRate||0).toFixed(1)}%</div></div>
-        </div>
-      </div>
-    \`;
-  } catch(e){
-    app.innerHTML = "<div class='err'><strong>Dashboard Error:</strong> Could not load data.</div>";
-  }
-})();
-</script>
-</body>
-</html>`;
-
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-        // ✅ allow embedding in GHL iframe
-        "Content-Security-Policy": "frame-ancestors *"
-      }
-    });
+    return new Response("Not found", { status: 404 });
   }
 };
