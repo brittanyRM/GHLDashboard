@@ -3,5 +3,5 @@ main = "src/index.js"
 compatibility_date = "2026-01-30"
 
 kv_namespaces = [
-  { binding = "METRICS_KV", id = "REPLACE_WITH_REAL_NAMESPACE_ID" }
+  { binding = "METRICS_KV", id = "PASTE_REAL_KV_ID_HERE" }
 ]
